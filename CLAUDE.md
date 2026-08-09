@@ -14,6 +14,13 @@ This file is authoritative for any AI assistant working in this repository.
 A feature is **not done** until all three exist and enforce the same security rules.
 If you add an endpoint and no MCP tool, you have introduced a defect.
 
+## Start Here
+
+[`HANDOFF.md`](HANDOFF.md) records the current state, why recent changes were
+made, and what is still open. Read it before changing anything in
+`docker-stack/`, `mcp-client/` or the nginx configs - several of the decisions
+there look arbitrary until you know which failure they came from.
+
 ## Repository Layout
 
 ```
@@ -73,6 +80,20 @@ Rules:
 4. MCP tool in `mcp-server/src/tools.js` (same role requirement).
 5. UI wiring in `address-ui` gated by `useAuth().can(...)`.
 6. Update `docs/API.md`.
+
+## Operational Rules
+
+- Run `docker-stack/check-env.ps1` before `docker compose up`. Length minimums
+  are enforced by services at startup and read as unexplained crash-loops.
+- `nginx.conf` is baked into the UI images. Changing it needs `--build`, not a
+  restart.
+- `proxy_pass` with a variable in its argument does not append the unmatched
+  path - nginx sends the URI in the directive verbatim. Use `$request_uri` when
+  the upstream is a variable, or the location prefix is silently dropped.
+- Cancellation of an HTTP request hooks `res.on('close')`. `req.on('close')`
+  fires as soon as the request body is read, which for a POST is immediately.
+- Long-running agent work reports progress; it does not return one JSON body at
+  the end. A user cannot tell slow from hung, and this stack is often slow.
 
 ## Style
 
