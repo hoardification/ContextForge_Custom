@@ -56,6 +56,37 @@ Then open:
 Sign in to the address book and assistant with `admin/admin123`,
 `editor/editor123` or `viewer/viewer123`.
 
+> **Change every default before this stack is reachable by anyone else.** The
+> accounts above, and `forge_dev_password`, are published in this repository.
+> On a default install, everyone who can read this page knows your credentials.
+> That is acceptable on a laptop bound to `127.0.0.1`; it stops being acceptable
+> the moment you set `BIND_ADDR=0.0.0.0` or open a firewall port.
+>
+> Editing `.env` is **not sufficient on its own**, because each value is read at
+> a different moment:
+>
+> | Value | When it is read | Changing it afterwards |
+> |---|---|---|
+> | `POSTGRES_PASSWORD` | only when the database volume first initializes | recreate the volume, or `ALTER ROLE` inside Postgres |
+> | `ADMIN_PASSWORD` | only while the `users` table is still empty | change the account in the UI, or `PUT /api/users/:id` |
+> | `MCP_PASSWORD` | on every stdio MCP start | must equal the `viewer` account's actual password |
+> | `editor` / `viewer` | hardcoded in `address-api/src/db/users.js` | change the accounts in the UI, or `PUT /api/users/:id` |
+>
+> On a stack with no data worth keeping, the clean route is to wipe and
+> re-bootstrap so every new value takes effect together:
+>
+> ```powershell
+> cd docker-stack
+> docker compose --env-file ../.env down -v     # -v also destroys the address data
+> .\check-env.ps1
+> docker compose --env-file ../.env up -d --build
+> ```
+>
+> On a stack you care about, change the passwords through the UI instead, then
+> update `MCP_PASSWORD` to match the `viewer` account's new password. Run
+> `.\check-env.ps1` either way — it flags any value still left at a shipped
+> placeholder.
+
 The gateway has its own, separate login -- it is not one of the application
 users. It reads `GATEWAY_ADMIN_USER` (basic auth), `GATEWAY_ADMIN_EMAIL`
 (platform admin) and `GATEWAY_ADMIN_PASSWORD` from `.env`.
@@ -167,6 +198,12 @@ overrides it for the case the heuristic gets wrong.
 Demo accounts (`admin123`, `editor123`, `viewer123`, `forge_dev_password`) are a
 deliberate exception: they are seeded fixtures, published in `.env.example`, and
 the firewall scripts refuse to widen exposure while they are still in place.
+
+That last defence only covers the firewall scripts. Nothing stops you binding
+`0.0.0.0` and reaching the stack across a LAN with the shipped accounts intact,
+so treat replacing them as a step in the install, not as hardening you get to
+postpone. See [Quick start](#quick-start) for which values take effect when, and
+why editing `.env` alone does not rotate an already-seeded account.
 
 ## Why qwen2.5:7b-instruct
 
