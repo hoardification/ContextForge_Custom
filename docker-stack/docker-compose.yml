@@ -1,0 +1,232 @@
+name: contextforge
+
+# Every published port binds ${BIND_ADDR}, which defaults to 0.0.0.0 — reachable
+# from anywhere on the LAN. Set BIND_ADDR=127.0.0.1 in .env to pull the whole
+# stack back to localhost only, or to a specific NIC address to expose it on just
+# one network. Run ./lan-urls.sh (or lan-urls.ps1) to print the LAN URLs.
+
+services:
+  # ---------------------------------------------------------------- data ----
+  postgres:
+    image: postgres:16-alpine
+    container_name: cf-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-addressbook}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-forge}']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ----------------------------------------------------------------- llm ----
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cf-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${OLLAMA_PORT:-11434}:11434'
+    environment:
+      # One model resident at a time, unloaded after 5m idle — keeps an 8 GB box honest.
+      OLLAMA_KEEP_ALIVE: 5m
+      OLLAMA_MAX_LOADED_MODELS: 1
+      OLLAMA_NUM_PARALLEL: 1
+    healthcheck:
+      test: ['CMD-SHELL', 'ollama list >/dev/null 2>&1 || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: pull the model on first boot, then exit.
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: cf-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        echo "Pulling $${OLLAMA_MODEL} (this takes a few minutes on first run)…"
+        ollama pull "$${OLLAMA_MODEL}"
+        echo "Model ready."
+    restart: 'no'
+    volumes:
+      - ollama:/root/.ollama
+
+  # ------------------------------------------------------------ app tier ----
+  address-api:
+    build:
+      context: ../address-api
+    container_name: cf-address-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-forge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-addressbook}
+      API_PORT: 4000
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      SEED_COUNT: ${SEED_COUNT:-100}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${API_PORT:-4000}:4000'
+
+  address-ui:
+    build:
+      context: ../address-ui
+    container_name: cf-address-ui
+    restart: unless-stopped
+    depends_on:
+      - address-api
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${UI_PORT:-8080}:80'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost/healthz || exit 1']
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  # ------------------------------------------------------------- mcp tier ---
+  mcp-server:
+    build:
+      context: ../mcp-server
+    container_name: cf-mcp-server
+    restart: unless-stopped
+    depends_on:
+      - address-api
+    environment:
+      API_BASE_URL: http://address-api:4000
+      MCP_HTTP_PORT: 4100
+      # Fallback identity for callers that present no JWT (e.g. the gateway's
+      # own probes). Deliberately the least-privileged account.
+      MCP_USERNAME: ${MCP_USERNAME:-viewer}
+      MCP_PASSWORD: ${MCP_PASSWORD:-viewer123}
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${MCP_HTTP_PORT:-4100}:4100'
+
+  mcp-client:
+    build:
+      context: ../mcp-client/server
+    container_name: cf-mcp-client
+    restart: unless-stopped
+    depends_on:
+      - mcp-server
+      - ollama
+    environment:
+      MCP_SERVER_URL: http://mcp-server:4100/mcp
+      API_BASE_URL: http://address-api:4000
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b-instruct}
+      MCP_CLIENT_PORT: 4200
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-6}
+      # Liveness and give-up bounds for /api/ask/stream. Generous by design:
+      # they exist to tell a slow run apart from a dead one, not to cut work off.
+      AGENT_HEARTBEAT_MS: ${AGENT_HEARTBEAT_MS:-10000}
+      AGENT_TIMEOUT_MS: ${AGENT_TIMEOUT_MS:-600000}
+      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-180000}
+      MCP_TOOL_TIMEOUT_MS: ${MCP_TOOL_TIMEOUT_MS:-60000}
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${MCP_CLIENT_PORT:-4200}:4200'
+
+  mcp-client-ui:
+    build:
+      context: ../mcp-client/ui
+    container_name: cf-mcp-client-ui
+    restart: unless-stopped
+    depends_on:
+      - mcp-client
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${MCP_CLIENT_UI_PORT:-8081}:80'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost/healthz || exit 1']
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  # ------------------------------------------------- IBM Context Forge -----
+  # AI gateway / registry that federates MCP servers behind one endpoint.
+  gateway:
+    image: ghcr.io/ibm/mcp-context-forge:latest
+    container_name: cf-gateway
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4444
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-forge}:${POSTGRES_PASSWORD:-forge_dev_password}@postgres:5432/mcpgateway
+      CACHE_TYPE: database
+      # These fallbacks are deliberately long. The gateway enforces minimum
+      # lengths (32 for the secrets, 22 for a privileged password) and exits
+      # if they are not met, so a short default turns into a silent
+      # crash-loop for anyone who starts the stack without an .env.
+      JWT_SECRET_KEY: ${GATEWAY_JWT_SECRET:-dev-only-gateway-jwt-secret-change-me-0000}
+      AUTH_ENCRYPTION_SECRET: ${GATEWAY_ENCRYPTION_SECRET:-dev-only-gateway-encryption-secret-change-me}
+      BASIC_AUTH_USER: ${GATEWAY_ADMIN_USER:-admin}
+      BASIC_AUTH_PASSWORD: ${GATEWAY_ADMIN_PASSWORD:-dev-only-change-me-please}
+      PLATFORM_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL:-admin@example.com}
+      PLATFORM_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD:-dev-only-change-me-please}
+      PLATFORM_ADMIN_FULL_NAME: Context Forge Admin
+      AUTH_REQUIRED: 'true'
+      MCPGATEWAY_UI_ENABLED: 'true'
+      MCPGATEWAY_ADMIN_API_ENABLED: 'true'
+      SECURE_COOKIES: 'false'
+      # SSRF protection stays ON, at its strict defaults. Registering a peer
+      # at http://mcp-server:4100/mcp needs exactly one exception: this stack's
+      # own network. SSRF_ALLOWED_NETWORKS is that exception - a CIDR allowlist
+      # consulted precisely because ALLOW_PRIVATE_NETWORKS is false.
+      #
+      # The alternative - ALLOW_PRIVATE_NETWORKS=true, ALLOW_LOCALHOST=true,
+      # DNS_FAIL_CLOSED=false - turns a registered tool URL into a way to make
+      # the gateway fetch anything on the host's LAN, its loopback, or a name
+      # that resolves differently on the second lookup. This gateway federates
+      # peers whose URLs are supplied by whoever can reach the admin API, so
+      # that is the whole SSRF attack surface, opened to make one hostname work.
+      SSRF_PROTECTION_ENABLED: 'true'
+      SSRF_ALLOW_LOCALHOST: 'false'
+      SSRF_ALLOW_PRIVATE_NETWORKS: 'false'
+      SSRF_DNS_FAIL_CLOSED: 'true'
+      SSRF_ALLOWED_NETWORKS: '["${STACK_SUBNET:-172.28.0.0/16}"]'
+      # Cloud metadata and link-local, blocked whatever else is allowed. Costs
+      # nothing here and matters the day this runs on a cloud VM.
+      SSRF_BLOCKED_NETWORKS: '["169.254.169.254/32","169.254.169.123/32","169.254.0.0/16","fe80::/10","fd00::1/128"]'
+      SSRF_BLOCKED_HOSTS: '["metadata.google.internal","metadata.internal"]'
+    ports:
+      - '${BIND_ADDR:-0.0.0.0}:${GATEWAY_PORT:-4444}:4444'
+
+volumes:
+  pgdata:
+  ollama:
+
+# Pinned so SSRF_ALLOWED_NETWORKS above can name it exactly. Left to Docker,
+# the subnet comes from the default pool and differs between machines, which
+# would make the allowlist wrong somewhere else. Both read one variable, so
+# they cannot drift apart.
+#
+# Changing it needs a recreate: docker compose down && docker compose up -d
+# (a live network's subnet cannot be edited in place).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${STACK_SUBNET:-172.28.0.0/16}

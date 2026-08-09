@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.log
+npm-debug.log*
+.DS_Store
+
+# --- secrets ---------------------------------------------------------------
+# .env is the only place real credentials live. Ignore every variant, then
+# re-admit the example, which holds placeholders and is meant to be tracked.
+.env
+.env.*
+!.env.example
+*.env
+
+# Key and certificate material, wherever it lands.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa*
+secrets/
+.secrets/

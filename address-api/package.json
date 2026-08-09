@@ -1,0 +1,25 @@
+{
+  "name": "address-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "REST API for the address book: Postgres, JWT auth, role-based access control.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node scripts/seed.js",
+    "check": "node --check src/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0",
+    "zod": "^3.23.8"
+  },
+  "engines": { "node": ">=20" }
+}

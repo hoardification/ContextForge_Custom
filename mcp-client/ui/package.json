@@ -1,0 +1,20 @@
+{
+  "name": "mcp-client-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Search-only UI. Everything else is done by the AI through MCP tools.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "contextforge-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests: API auth/RBAC/CRUD against in-memory Postgres, and end-to-end MCP tool calls.",
+  "scripts": {
+    "//": "mcp.test.mjs imports ../mcp-server/src, which resolves its own deps from ../mcp-server/node_modules — so those projects must be installed first.",
+    "pretest": "npm --prefix ../mcp-server install && npm --prefix ../mcp-client/server install",
+    "test": "node api.test.mjs && node mcp.test.mjs",
+    "test:api": "node api.test.mjs",
+    "test:mcp": "node mcp.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg-mem": "^3.0.5",
+    "zod": "^3.23.8"
+  }
+}

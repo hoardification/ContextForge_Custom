@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Refuse commits that carry credentials.
+#
+# .gitignore stops the obvious mistake, but it cannot help once a file is
+# already tracked, or when a password is pasted into a README. This looks at
+# what is actually staged.
+#
+# Enable it once per clone:
+#   git config core.hooksPath .githooks
+#
+# Escape hatch for a deliberate placeholder:
+#   ...  # pragma: allowlist secret
+set -uo pipefail
+
+fail=0
+red()  { printf '\033[31m%s\033[0m\n' "$1"; }
+grey() { printf '\033[90m%s\033[0m\n' "$1"; }
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# Values that ship with the project on purpose. Flagging these would train
+# everyone to use --no-verify, which is worse than having no hook at all.
+placeholder='change-?me|changeme|replace-me|dev-only|forge_dev|admin123|editor123|viewer123|test-secret|__REPLACE|your-|example'
+
+# Lines that are plainly reading a value rather than stating one.
+reading='\$\{|\$env:|process\.env|# pragma: allowlist secret'
+
+# --- 1. env files must never be committed, .env.example aside ---------------
+while IFS= read -r f; do
+  case "$(basename "$f")" in
+    .env.example) ;;
+    .env|.env.*|*.env)
+      red "  Refusing to commit $f"
+      grey "  Real credentials live in .env, which stays out of git."
+      grey "  Unstage it:  git restore --staged $f"
+      fail=1
+      ;;
+  esac
+done <<< "$staged"
+
+# --- 2. credential-shaped literals in added lines ---------------------------
+# Note the unescaped '+': in a basic regex GNU grep reads '\+' as the
+# repetition operator, so '^\+\+\+' quietly matches every line and the scan
+# below would never see anything.
+added() {
+  git diff --cached -U0 -- "$1" \
+    | grep '^+' | grep -v '^+++' \
+    | grep -vE "$reading" || true
+}
+
+report() {
+  red "  Possible credential in $1"
+  printf '%s\n' "$2" | head -5 | cut -c1-120 | sed 's/^/    /'
+  fail=1
+}
+
+# An assignment states a secret; code merely handles one. These patterns are
+# deliberately narrow - they want a literal on the right-hand side, not an
+# expression - so that `const [token, setToken] = useState(...)` stays quiet.
+env_shape='^\+[A-Za-z_][A-Za-z0-9_]*(PASSWORD|PASSWD|PWD|SECRET|TOKEN|APIKEY|API_KEY)[A-Za-z0-9_]*=[^[:space:]]{12,}$'
+yaml_shape='^\+[[:space:]]*[A-Za-z_]*(PASSWORD|PASSWD|SECRET|TOKEN|API_KEY)[A-Za-z_]*:[[:space:]]+[^[:space:]"'"'"'{]{12,}$'
+quoted_shape='(password|passwd|pwd|secret|token|api[_-]?key)[^A-Za-z0-9]{0,3}[=:][[:space:]]*["'"'"'][^"'"'"']{12,}["'"'"']'
+
+while IFS= read -r f; do
+  [ "$(basename "$f")" = ".env.example" ] && continue
+  case "$f" in .githooks/*) continue ;; esac
+
+  lines=$(added "$f")
+  [ -z "$lines" ] && continue
+
+  hits=$(printf '%s\n' "$lines" \
+    | grep -nE "$env_shape|$yaml_shape" \
+    | grep -viE "$placeholder" || true)
+  quoted=$(printf '%s\n' "$lines" \
+    | grep -niE "$quoted_shape" \
+    | grep -viE "$placeholder" || true)
+
+  [ -n "$hits" ]   && report "$f" "$hits"
+  [ -n "$quoted" ] && report "$f" "$quoted"
+
+  # KEY=VALUE is only one shape. A password pasted into prose or a table has
+  # no '=' at all, so also look for a credential word sharing a line with a
+  # long mixed-case-and-digit token - which is what a real password looks like
+  # and what an identifier or an ordinary sentence does not.
+  prose=$(printf '%s\n' "$lines" \
+    | grep -iE 'password|passwd|pwd|secret|token|credential|api[_-]?key|auth|login|sign[ -]?in' \
+    | grep -viE "$placeholder" || true)
+
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    for tok in $(printf '%s' "$line" | grep -oE '[A-Za-z0-9!@#%^&*_.+-]{16,}' || true); do
+      # A credential mixes classes. Identifiers, URLs and hashes-in-prose
+      # generally do not manage all three.
+      printf '%s' "$tok" | grep -q '[A-Z]'  || continue
+      printf '%s' "$tok" | grep -q '[a-z]'  || continue
+      printf '%s' "$tok" | grep -q '[0-9]'  || continue
+      # An expression, not a literal.
+      printf '%s' "$tok" | grep -qE '\(|\)' && continue
+      report "$f" "$line"
+      break
+    done
+  done <<< "$prose"
+done <<< "$staged"
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  grey "  Move the value into .env and read it from there, or append"
+  grey "  '# pragma: allowlist secret' if it is genuinely a placeholder."
+  grey "  Override once with: git commit --no-verify"
+  exit 1
+fi
+
+exit 0
