@@ -75,9 +75,16 @@ export async function ensureBootstrapUsers() {
   const admin = process.env.ADMIN_USERNAME || 'admin';
   const pass = process.env.ADMIN_PASSWORD || 'admin123';
 
+  // Seeded fixtures, so these keep a published fallback rather than refusing to
+  // start. VIEWER_PASSWORD is the one with a second consumer: the MCP server
+  // signs in as `viewer` over stdio, so MCP_PASSWORD has to be changed with it
+  // or every tool call returns 401. docker-stack/check-env.ps1 warns on drift.
+  const editorPass = process.env.EDITOR_PASSWORD || 'editor123';
+  const viewerPass = process.env.VIEWER_PASSWORD || 'viewer123';
+
   await createUser({ username: admin, password: pass, role: 'admin' });
-  await createUser({ username: 'editor', password: 'editor123', role: 'readwrite' });
-  await createUser({ username: 'viewer', password: 'viewer123', role: 'read' });
+  await createUser({ username: 'editor', password: editorPass, role: 'readwrite' });
+  await createUser({ username: 'viewer', password: viewerPass, role: 'read' });
 
   console.log(`[db] bootstrap users created (${admin}/admin, editor/readwrite, viewer/read)`);
   return true;

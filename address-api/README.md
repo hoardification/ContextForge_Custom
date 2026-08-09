@@ -15,13 +15,22 @@ on first boot (set `AUTO_SEED=false` to disable).
 
 ## Bootstrap accounts
 
-| Username | Password    | Role        |
-|----------|-------------|-------------|
-| admin    | admin123    | `admin`     |
-| editor   | editor123   | `readwrite` |
-| viewer   | viewer123   | `read`      |
+| Username | Default password | Role        | Set with           |
+|----------|------------------|-------------|--------------------|
+| admin    | admin123         | `admin`     | `ADMIN_PASSWORD`   |
+| editor   | editor123        | `readwrite` | `EDITOR_PASSWORD`  |
+| viewer   | viewer123        | `read`      | `VIEWER_PASSWORD`  |
 
-Change these in production via `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+The admin username is `ADMIN_USERNAME`; `editor` and `viewer` are fixed names.
+
+These are read **only while the `users` table is empty**. On a database that has
+already been bootstrapped, changing them has no effect — update the account
+through the UI or `PUT /api/users/:id`, or recreate the database.
+
+Change `MCP_PASSWORD` whenever you change `VIEWER_PASSWORD`. The MCP server
+signs in as `viewer` for callers that present no JWT, so the two drifting apart
+turns every unauthenticated tool call into a 401. `docker-stack/check-env.ps1`
+warns when they differ.
 
 ## Endpoints
 

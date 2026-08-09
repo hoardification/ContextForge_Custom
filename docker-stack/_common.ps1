@@ -92,10 +92,18 @@ function Get-CfDefaultCredentials {
     'JWT_SECRET'             = 'change-me-to-a-long-random-string'
     'POSTGRES_PASSWORD'      = 'forge_dev_password'
     'ADMIN_PASSWORD'         = 'admin123'
+    'EDITOR_PASSWORD'        = 'editor123'
+    'VIEWER_PASSWORD'        = 'viewer123'
     'MCP_PASSWORD'           = 'viewer123'
-    'GATEWAY_ADMIN_PASSWORD' = 'changeme'
-    'GATEWAY_JWT_SECRET'     = 'change-me-gateway-secret'
+    'GATEWAY_ADMIN_PASSWORD' = 'replace-me-22-plus-chars--'
+    'GATEWAY_JWT_SECRET'     = 'replace-me-32-plus-chars-0000000000000000'
   }
+
+  # Exact values drift from .env.example the moment a placeholder is reworded,
+  # and a stale entry here fails open - the gate simply stops recognising the
+  # default it exists to catch. These placeholders are all prefix-shaped, so
+  # also refuse anything merely built on one, e.g. 'replace-me-32-plus-x'.
+  $prefixes = @('change-me', 'changeme', 'replace-me', 'dev-only', 'forge_dev')
 
   $found = @()
   foreach ($key in $shipped.Keys) {
@@ -105,6 +113,9 @@ function Get-CfDefaultCredentials {
       $found += $key
     } elseif ($EnvVars[$key] -eq $shipped[$key]) {
       $found += $key
+    } else {
+      $val = $EnvVars[$key].ToLower()
+      if (@($prefixes | Where-Object { $val.StartsWith($_) }).Count -gt 0) { $found += $key }
     }
   }
   return $found | Sort-Object

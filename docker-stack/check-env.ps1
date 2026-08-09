@@ -75,6 +75,26 @@ foreach ($r in $rules) {
   }
 }
 
+# --- viewer identity coherence ----------------------------------------------
+# The MCP server signs in as `viewer` for callers that present no JWT. Change
+# VIEWER_PASSWORD without changing MCP_PASSWORD and every call on that path
+# 401s, which reads as "MCP is broken" rather than as a two-line config slip.
+# This compares the configuration only - it cannot see a password already
+# seeded into an existing database.
+$viewerPass = if ($envVars.ContainsKey('VIEWER_PASSWORD')) { $envVars['VIEWER_PASSWORD'] } else { 'viewer123' }
+$mcpPass    = if ($envVars.ContainsKey('MCP_PASSWORD'))    { $envVars['MCP_PASSWORD'] }    else { 'viewer123' }
+$mcpUser    = if ($envVars.ContainsKey('MCP_USERNAME'))    { $envVars['MCP_USERNAME'] }    else { 'viewer' }
+
+if ($mcpUser -eq 'viewer' -and $viewerPass -ne $mcpPass) {
+  Write-Host ('  [mismatch ] {0,-26} does not match VIEWER_PASSWORD' -f 'MCP_PASSWORD') -ForegroundColor Yellow
+  Write-Host '               MCP_USERNAME is viewer, so unauthenticated MCP calls will 401.' -ForegroundColor DarkGray
+  Write-Host '               Set both to one value, or point MCP_USERNAME at another account.' -ForegroundColor DarkGray
+  $warn++
+}
+else {
+  Write-Host ('  [ok       ] {0,-26} matches VIEWER_PASSWORD' -f 'MCP_PASSWORD') -ForegroundColor Green
+}
+
 # --- gateway SSRF posture ---------------------------------------------------
 # Relaxing SSRF is the usual quick fix for "the gateway cannot reach
 # mcp-server", and it silently stays relaxed forever. Name it out loud.

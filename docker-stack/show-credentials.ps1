@@ -67,8 +67,8 @@ $groups = @(
     Url   = "http://localhost:$($envVars['UI_PORT']) and :$($envVars['MCP_CLIENT_UI_PORT'])"
     Items = @(
       @{ Label = 'admin';  User = $envVars['ADMIN_USERNAME']; Key = 'ADMIN_PASSWORD' }
-      @{ Label = 'editor'; User = 'editor'; Literal = 'editor123'; Demo = $true }
-      @{ Label = 'viewer'; User = 'viewer'; Literal = 'viewer123'; Demo = $true }
+      @{ Label = 'editor'; User = 'editor'; Key = 'EDITOR_PASSWORD'; Literal = 'editor123'; Demo = $true }
+      @{ Label = 'viewer'; User = 'viewer'; Key = 'VIEWER_PASSWORD'; Literal = 'viewer123'; Demo = $true }
     )
   }
   @{
@@ -99,9 +99,15 @@ foreach ($g in $groups) {
   Write-Host "  $($g.Title)" -ForegroundColor White
   Write-Host "  $($g.Url)" -ForegroundColor DarkGray
   foreach ($i in $g.Items) {
-    $value = if ($i.Literal) { $i.Literal } else { $envVars[$i.Key] }
-    $shown = if ($Reveal -or $i.Demo) { $value } else { Mask $value }
-    $note  = if ($i.Demo) { '  (shipped demo account)' } else { '' }
+    # .env wins. The literal is only the fallback for a key the file omits, in
+    # which case the compose default is what the stack is actually running.
+    $value = if ($i.Key -and $envVars[$i.Key]) { $envVars[$i.Key] } else { $i.Literal }
+    # A demo account is printed in the clear only while it still holds the
+    # shipped value. Once rotated it is a real credential and gets masked like
+    # any other, or -Reveal would leak it to anyone reading over your shoulder.
+    $isDemo = $i.Demo -and $i.Literal -and $value -eq $i.Literal
+    $shown = if ($Reveal -or $isDemo) { $value } else { Mask $value }
+    $note  = if ($isDemo) { '  (shipped demo account)' } else { '' }
     Write-Host ('    {0,-15} {1,-22} {2}{3}' -f $i.Label, $i.User, $shown, $note)
   }
 }

@@ -7,6 +7,10 @@ import { newDb } from 'pg-mem';
 process.env.JWT_SECRET = 'test-secret';
 process.env.ADMIN_USERNAME = 'admin';
 process.env.ADMIN_PASSWORD = 'admin123';
+// Deliberately not the shipped defaults: a bootstrap password that ignores its
+// env var would still pass every assertion below if this said editor123.
+process.env.EDITOR_PASSWORD = 'test-secret-editor-pw';
+process.env.VIEWER_PASSWORD = 'test-secret-viewer-pw';
 
 // --- in-memory Postgres ----------------------------------------------------
 // The real db layer builds its Pool from env at import time, so rather than
@@ -43,12 +47,27 @@ const express = (await import('express')).default;
 const { z } = await import('zod');
 
 // bootstrap users (mirrors src/db/users.js ensureBootstrapUsers)
-for (const [u, p, r] of [['admin', 'admin123', 'admin'], ['editor', 'editor123', 'readwrite'], ['viewer', 'viewer123', 'read']]) {
+// Read the same env vars, with the same fallbacks, as the code being mirrored.
+// Hardcoding the passwords here would let the real function stop honouring
+// EDITOR_PASSWORD / VIEWER_PASSWORD without a single test going red.
+for (const [u, p, r] of [
+  ['admin', process.env.ADMIN_PASSWORD || 'admin123', 'admin'],
+  ['editor', process.env.EDITOR_PASSWORD || 'editor123', 'readwrite'],
+  ['viewer', process.env.VIEWER_PASSWORD || 'viewer123', 'read'],
+]) {
   await q('INSERT INTO users (username, password_hash, role) VALUES ($1,$2,$3)',
     [u, await bcrypt.hash(p, 10), r]);
 }
 const userCount = (await q('SELECT count(*)::int AS total FROM users')).rows[0].total;
 check('bootstrap users created', Number(userCount) === 3, `got ${userCount}`);
+
+// A configurable password is only configurable if it reaches the stored hash.
+const viewerHash = (await q('SELECT password_hash FROM users WHERE username = $1', ['viewer']))
+  .rows[0].password_hash;
+check('VIEWER_PASSWORD is what gets seeded',
+  await bcrypt.compare(process.env.VIEWER_PASSWORD, viewerHash));
+check('the shipped default stops working once VIEWER_PASSWORD is set',
+  !(await bcrypt.compare('viewer123', viewerHash)));
 
 // seed addresses using the REAL generator
 const { generateAddresses } = await import('../address-api/scripts/generate.js');

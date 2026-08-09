@@ -32,7 +32,7 @@ call with no UI at all — under one shared security model.**
 | [`mcp-server/`](mcp-server/) | Standalone MCP server, 14 tools, stdio + streamable HTTP |
 | [`mcp-client/`](mcp-client/) | Agent backend + search-only React UI, driven by local Ollama |
 | [`docker-stack/`](docker-stack/) | Compose for all of it, plus Ollama and the IBM Context Forge gateway |
-| [`tests/`](tests/) | 60 integration tests — no Docker or Ollama needed |
+| [`tests/`](tests/) | 62 integration tests — no Docker or Ollama needed |
 
 [`CLAUDE.md`](CLAUDE.md) holds the conventions any AI assistant must follow in this
 repo — chiefly: no feature ships without a REST endpoint *and* an MCP tool.
@@ -69,8 +69,9 @@ Sign in to the address book and assistant with `admin/admin123`,
 > |---|---|---|
 > | `POSTGRES_PASSWORD` | only when the database volume first initializes | recreate the volume, or `ALTER ROLE` inside Postgres |
 > | `ADMIN_PASSWORD` | only while the `users` table is still empty | change the account in the UI, or `PUT /api/users/:id` |
+> | `EDITOR_PASSWORD` | only while the `users` table is still empty | change the account in the UI, or `PUT /api/users/:id` |
+> | `VIEWER_PASSWORD` | only while the `users` table is still empty | change the account in the UI, and update `MCP_PASSWORD` to match |
 > | `MCP_PASSWORD` | on every stdio MCP start | must equal the `viewer` account's actual password |
-> | `editor` / `viewer` | hardcoded in `address-api/src/db/users.js` | change the accounts in the UI, or `PUT /api/users/:id` |
 >
 > On a stack with no data worth keeping, the clean route is to wipe and
 > re-bootstrap so every new value takes effect together:
@@ -154,7 +155,7 @@ the model is instructed to explain why rather than retry.
 Try it: sign into the assistant as `viewer` and ask it to delete someone.
 
 ```bash
-cd tests && npm install && npm test    # 60 tests, ~15s, no services required
+cd tests && npm install && npm test    # 62 tests, ~15s, no services required
 ```
 
 ## Gateway SSRF

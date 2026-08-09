@@ -5,8 +5,9 @@
   "type": "module",
   "description": "Integration tests: API auth/RBAC/CRUD against in-memory Postgres, and end-to-end MCP tool calls.",
   "scripts": {
-    "//": "mcp.test.mjs imports ../mcp-server/src, which resolves its own deps from ../mcp-server/node_modules — so those projects must be installed first.",
-    "pretest": "npm --prefix ../mcp-server install && npm --prefix ../mcp-client/server install",
+    "//": "Both suites import a sibling project's src, and an import resolves its deps from that project's own node_modules - so every project reached into must be installed first. api.test.mjs reaches into ../address-api; omitting it fails a clean clone with ERR_MODULE_NOT_FOUND for jsonwebtoken.",
+    "//2": "cd, not --prefix. 'npm --prefix ../x install' run from a directory that has its own package.json installs THIS package into ../x - which silently added 'contextforge-tests' as a dependency of every sibling it touched.",
+    "pretest": "cd ../address-api && npm install --no-audit --no-fund && cd ../mcp-server && npm install --no-audit --no-fund && cd ../mcp-client/server && npm install --no-audit --no-fund",
     "test": "node api.test.mjs && node mcp.test.mjs",
     "test:api": "node api.test.mjs",
     "test:mcp": "node mcp.test.mjs"

@@ -87,6 +87,9 @@ services:
       SEED_COUNT: ${SEED_COUNT:-100}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      EDITOR_PASSWORD: ${EDITOR_PASSWORD:-editor123}
+      # Keep in step with MCP_PASSWORD on the mcp-server service below.
+      VIEWER_PASSWORD: ${VIEWER_PASSWORD:-viewer123}
     ports:
       - '${BIND_ADDR:-0.0.0.0}:${API_PORT:-4000}:4000'
 
