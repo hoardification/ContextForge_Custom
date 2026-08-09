@@ -4,6 +4,11 @@ State of the stack and the reasoning behind recent changes, so a new session can
 pick up without re-deriving any of it. `CLAUDE.md` holds the standing rules;
 this file holds the *why* and what is still open.
 
+For the *design* reasoning - why the MCP server is a thin proxy, why identity is
+inherited rather than configured, why there are two firewall scripts, and what
+was considered and rejected - see [`docs/DECISIONS.md`](docs/DECISIONS.md). That
+file is durable; this one is a snapshot.
+
 ## Current state
 
 The stack runs. Postgres, Ollama, the address API and UI, the MCP server, the

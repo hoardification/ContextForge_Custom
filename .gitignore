@@ -24,3 +24,7 @@ npm-debug.log*
 id_rsa*
 secrets/
 .secrets/
+
+# Salvage from a git recovery - tarballs, stale locks and a corrupt object
+# store. Local scratch only; nothing here belongs in the published history.
+_to_delete/

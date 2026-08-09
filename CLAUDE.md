@@ -16,10 +16,18 @@ If you add an endpoint and no MCP tool, you have introduced a defect.
 
 ## Start Here
 
-[`HANDOFF.md`](HANDOFF.md) records the current state, why recent changes were
-made, and what is still open. Read it before changing anything in
-`docker-stack/`, `mcp-client/` or the nginx configs - several of the decisions
-there look arbitrary until you know which failure they came from.
+Three documents, in the order you want them:
+
+- [`HANDOFF.md`](HANDOFF.md) - current state, why recent changes were made, and
+  what is still open. Read it before changing anything in `docker-stack/`,
+  `mcp-client/` or the nginx configs - several of the decisions there look
+  arbitrary until you know which failure they came from. It changes often.
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) - why the design is what it is, and
+  which alternatives were rejected. Read it before changing the identity flow,
+  the MCP server's role as a thin proxy, or the network exposure model. It
+  changes only when a decision changes.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - request paths, identity flow
+  and the data model.
 
 ## Repository Layout
 
@@ -30,7 +38,8 @@ ContextForge/
 ├── mcp-server/      # Standalone MCP server (stdio + streamable HTTP)
 ├── mcp-client/      # AI client: Ollama-driven agent + search-only React UI
 ├── docker-stack/    # docker-compose for everything incl. Ollama + Context Forge
-└── docs/            # Architecture and API notes
+├── tests/           # Integration suites; no Docker, Postgres or Ollama needed
+└── docs/            # Architecture, design decisions and API notes
 ```
 
 ## Roles and Security Model
@@ -48,6 +57,14 @@ Rules:
 - The **API is the only place** authorization is truly enforced. The UI and the MCP
   server hide/deny things for UX, but must never be the sole gate.
 - The MCP server never holds a privileged god-token. It forwards the caller's JWT.
+- **Permission inheritance is a guarantee, not an implementation detail.** The
+  user's JWT is forwarded verbatim browser -> agent -> MCP server -> API, so an
+  agent acts with exactly the permissions of the human driving it. Anything that
+  gives a middle hop its own token removes that property. `tests/mcp.test.mjs`
+  asserts it; if that suite fails, a security guarantee has gone, not just a test.
+- The one place identity is *configured* rather than inherited is the stdio
+  transport, which has no headers: `MCP_USERNAME` / `MCP_PASSWORD`. Default it to
+  the least-privileged account that still works.
 - JWTs are signed with `JWT_SECRET` (HS256), 8h expiry, payload `{ sub, username, role }`.
 - Passwords are bcrypt hashed, cost 10. Never log or return a password hash.
 
@@ -80,6 +97,8 @@ Rules:
 4. MCP tool in `mcp-server/src/tools.js` (same role requirement).
 5. UI wiring in `address-ui` gated by `useAuth().can(...)`.
 6. Update `docs/API.md`.
+7. Cover the new role boundary in `tests/mcp.test.mjs` - at minimum, that the
+   role below the one you require is refused. `cd tests && npm test`.
 
 ## Operational Rules
 
@@ -94,6 +113,18 @@ Rules:
   fires as soon as the request body is read, which for a POST is immediately.
 - Long-running agent work reports progress; it does not return one JSON body at
   the end. A user cannot tell slow from hung, and this stack is often slow.
+- Both UI bundles call a relative `/api` and their own nginx proxies upstream.
+  That is what makes the same image work on localhost, a LAN IP or a hostname
+  with no rebuild and no CORS. Do not introduce a build-time API base URL.
+- Published ports are `${BIND_ADDR:-0.0.0.0}:host:container`. Exposure is one
+  variable, not eight edits. Add new services the same way.
+- The firewall port list lives once, in `docker-stack/_common.ps1`, dot-sourced
+  by all three firewall scripts. Never copy it into a script - two lists drifting
+  is what leaves a port open you believed you had closed. Add a new published
+  port there and to `docker-compose.yml` in the same change.
+- `_common.ps1` also holds the shipped-default credential table that
+  `open-firewall-public.ps1` refuses on. If a default in `.env.example` or a
+  compose fallback changes, change that table too, or the gate stops catching it.
 
 ## Style
 
