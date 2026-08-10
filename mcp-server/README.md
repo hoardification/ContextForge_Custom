@@ -8,6 +8,7 @@ one tool set, and the same RBAC the REST API enforces.
 | Tool               | Min role    | What it does |
 |--------------------|-------------|--------------|
 | `whoami`           | read        | Report the authenticated identity and role |
+| `password_change`  | any         | Replace the calling account's own password |
 | `address_search`   | read        | Free-text search + city/state filters, paged |
 | `address_list_all` | read        | Every address, paged |
 | `address_get`      | read        | One address by id or customer id |
@@ -38,6 +39,13 @@ MCP_HTTP_PORT=4100 API_BASE_URL=http://localhost:4000 npm start
 **stdio** — for Claude Desktop / Claude Code. No headers exist, so identity is
 the `MCP_USERNAME` / `MCP_PASSWORD` service account.
 
+> The service account must **not** hold one of the demo passwords published in
+> this repository. Those are treated as already expired, and a service account
+> has no way to answer a password prompt, so every call fails with
+> `PASSWORD_CHANGE_REQUIRED`. Give the account a real password first — change it
+> in the address book UI and set `MCP_PASSWORD` to match. The configs below use
+> a placeholder for exactly that reason.
+
 ```bash
 npm run start:stdio
 ```
@@ -55,7 +63,7 @@ Add to `claude_desktop_config.json`:
       "env": {
         "API_BASE_URL": "http://localhost:4000",
         "MCP_USERNAME": "editor",
-        "MCP_PASSWORD": "editor123"
+        "MCP_PASSWORD": "your-real-password-here"
       }
     }
   }
@@ -97,7 +105,7 @@ point `API_BASE_URL` at the LAN address of the API:
       "env": {
         "API_BASE_URL": "http://192.168.1.50:4000",
         "MCP_USERNAME": "editor",
-        "MCP_PASSWORD": "editor123"
+        "MCP_PASSWORD": "your-real-password-here"
       }
     }
   }

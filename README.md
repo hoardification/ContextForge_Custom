@@ -32,7 +32,7 @@ call with no UI at all — under one shared security model.**
 | [`mcp-server/`](mcp-server/) | Standalone MCP server, 14 tools, stdio + streamable HTTP |
 | [`mcp-client/`](mcp-client/) | Agent backend + search-only React UI, driven by local Ollama |
 | [`docker-stack/`](docker-stack/) | Compose for all of it, plus Ollama and the IBM Context Forge gateway |
-| [`tests/`](tests/) | 62 integration tests — no Docker or Ollama needed |
+| [`tests/`](tests/) | 82 integration tests — no Docker or Ollama needed |
 
 [`CLAUDE.md`](CLAUDE.md) holds the conventions any AI assistant must follow in this
 repo — chiefly: no feature ships without a REST endpoint *and* an MCP tool.
@@ -54,7 +54,9 @@ Then open:
 - **http://localhost:4444/admin** — the Context Forge gateway
 
 Sign in to the address book and assistant with `admin/admin123`,
-`editor/editor123` or `viewer/viewer123`.
+`editor/editor123` or `viewer/viewer123`. **Each of these forces you to choose a
+new password before it will do anything** — see
+[Forced password change](#forced-password-change).
 
 > **Change every default before this stack is reachable by anyone else.** The
 > accounts above, and `forge_dev_password`, are published in this repository.
@@ -137,6 +139,38 @@ Set `BIND_ADDR=127.0.0.1` in `.env` to pull it back to local-only, or
 `LAN_IP=192.168.1.50` to pin the address the helper scripts report. Details and
 the security caveats are in [`docker-stack/README.md`](docker-stack/README.md).
 
+## Forced password change
+
+The passwords above are printed in this repository, so an install that keeps
+them is not protected by them. The API treats any of them as already expired.
+
+Signing in still works — you have to get in to fix it — but the token you
+receive carries `scope: 'password_change'` and is refused everywhere except
+`POST /api/auth/change-password`. The role claim is untouched, so a locked
+`admin` account is still nominally an admin; the scope is the only thing
+stopping it, which is why the check sits in `requireAuth` where every protected
+route inherits it. The address book UI shows a change-password screen instead
+of the app; the assistant, which is search-only by design, refuses the session
+and sends you to the address book.
+
+The test is run on **every login**, not only when accounts are seeded, so it
+also catches a database created before this existed and an account an admin
+later sets back to a published value. Replacements must be 12+ characters and
+must not be another published value.
+
+Two consequences worth knowing before you hit them:
+
+- **Service accounts cannot do this.** `MCP_USERNAME`/`MCP_PASSWORD` has no one
+  to prompt, so a locked service account fails with `PASSWORD_CHANGE_REQUIRED`
+  and a message pointing at `.env`. Set `VIEWER_PASSWORD` and `MCP_PASSWORD`
+  together and the situation never arises.
+- **The gateway is not covered.** Context Forge is a third-party service with
+  its own login; `GATEWAY_ADMIN_PASSWORD` is enforced only by the length rules
+  in `check-env.ps1`.
+
+The list of published passwords lives once, in
+[`address-api/src/publicPasswords.js`](address-api/src/publicPasswords.js).
+
 ## The security model
 
 Three roles, enforced once — in the API — and inherited by everything upstream.
@@ -155,7 +189,7 @@ the model is instructed to explain why rather than retry.
 Try it: sign into the assistant as `viewer` and ask it to delete someone.
 
 ```bash
-cd tests && npm install && npm test    # 62 tests, ~15s, no services required
+cd tests && npm install && npm test    # 82 tests, ~15s, no services required
 ```
 
 ## Gateway SSRF

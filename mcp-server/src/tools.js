@@ -14,7 +14,9 @@ function fail(err) {
   const hint =
     code === 'FORBIDDEN'
       ? ' (your account does not have the required role for this action)'
-      : '';
+      : code === 'PASSWORD_CHANGE_REQUIRED'
+        ? ' (call password_change first; no other tool will work until then)'
+        : '';
   return {
     isError: true,
     content: [{ type: 'text', text: `Error [${code}]: ${err.message}${hint}` }],
@@ -60,6 +62,44 @@ export function registerTools(server, getClient) {
     wrap(async () => {
       const user = await getClient().whoami();
       return ok(`Authenticated as ${user.username} with role '${user.role}'.`, user);
+    }),
+  );
+
+  server.registerTool(
+    'password_change',
+    {
+      title: 'Change your password',
+      description:
+        'Replace the password of the account these tools run as. An account still holding a ' +
+        'password published in the project source can call nothing else until this succeeds, ' +
+        'so run it first if every other tool reports PASSWORD_CHANGE_REQUIRED. Any role; it ' +
+        'only ever affects the calling account.',
+      inputSchema: {
+        currentPassword: z.string().min(1).describe('The password currently in use'),
+        newPassword: z
+          .string()
+          .min(1)
+          .describe(
+            'At least 12 characters, and not one of the demo passwords published in this ' +
+            'repository. The API rejects both, so ask the user for a real one rather than ' +
+            'inventing a variation on the old password.',
+          ),
+      },
+    },
+    wrap(async ({ currentPassword, newPassword }) => {
+      const res = await getClient().request('/api/auth/change-password', {
+        method: 'POST',
+        body: { currentPassword, newPassword },
+      });
+      // Deliberately drops res.token. Echoing a bearer token into tool output
+      // would write a live credential into the model's context and the chat
+      // transcript; the client already holds it.
+      const data = { user: res.user, mustChangePassword: res.mustChangePassword };
+      return ok(
+        `Password changed for ${res.user.username}. The account is no longer restricted; ` +
+        'existing tokens issued before this change are still valid until they expire.',
+        data,
+      );
     }),
   );
 

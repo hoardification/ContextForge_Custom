@@ -53,7 +53,8 @@ export default function Login() {
       </div>
       <p className="muted" style={{ fontSize: 12 }}>
         Demo accounts: <code>admin/admin123</code>, <code>editor/editor123</code>,{' '}
-        <code>viewer/viewer123</code>
+        <code>viewer/viewer123</code>. These are published in the project source, so
+        signing in with one lets you do nothing but choose a replacement.
       </p>
     </div>
   );

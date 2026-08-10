@@ -65,7 +65,16 @@ Rules:
 - The one place identity is *configured* rather than inherited is the stdio
   transport, which has no headers: `MCP_USERNAME` / `MCP_PASSWORD`. Default it to
   the least-privileged account that still works.
-- JWTs are signed with `JWT_SECRET` (HS256), 8h expiry, payload `{ sub, username, role }`.
+- JWTs are signed with `JWT_SECRET` (HS256), 8h expiry, payload `{ sub, username, role }`,
+  plus `scope` on the restricted token described next.
+- **A password this repository publishes is treated as already expired.** Login
+  with one succeeds but returns a token carrying `scope: 'password_change'`, and
+  `requireAuth` refuses that token everywhere except `POST /api/auth/change-password`.
+  The role claim is untouched, so the refusal must come from the scope check -
+  a locked `admin` is otherwise a full admin. New protected routes inherit this
+  automatically by using `requireAuth`; reaching for
+  `requireAuthForPasswordChange` instead disables the lock for that route.
+  The published list lives once, in `address-api/src/publicPasswords.js`.
 - Passwords are bcrypt hashed, cost 10. Never log or return a password hash.
 
 ## REST Conventions
@@ -75,7 +84,8 @@ Rules:
   returns `{ data: [...], page, pageSize, total }`.
 - Single resource: `GET|PUT|DELETE /api/addresses/:id`.
 - Errors: `{ error: { code, message, details? } }` with a correct HTTP status.
-  Codes: `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION`, `CONFLICT`, `INTERNAL`.
+  Codes: `UNAUTHENTICATED`, `FORBIDDEN`, `PASSWORD_CHANGE_REQUIRED`, `NOT_FOUND`,
+  `VALIDATION`, `CONFLICT`, `INTERNAL`.
 - Validate every body/query with zod. No unvalidated input reaches SQL.
 - Only parameterized SQL. Never string-concatenate a query.
 

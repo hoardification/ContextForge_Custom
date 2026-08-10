@@ -42,6 +42,20 @@ export class ApiClient {
       throw new ApiError(res.status, body?.error?.code || 'UNAUTHENTICATED',
         body?.error?.message || 'Login failed');
     }
+    // Login succeeded but the account is locked to a password change. The
+    // token it returned is scoped and would 403 on every tool call, so say
+    // what is actually wrong instead of letting that surface as an auth error.
+    // A service account cannot complete an interactive change - the fix is in
+    // .env, not here.
+    if (body.mustChangePassword) {
+      throw new ApiError(403, 'PASSWORD_CHANGE_REQUIRED',
+        `The '${this.username}' service account is still using a password published in ` +
+        'this project\'s source, so it cannot be used. Set VIEWER_PASSWORD in .env with ' +
+        'MCP_PASSWORD to match, recreate address-api and mcp-server, and retry. On an ' +
+        'existing database also change the account itself - the seed only applies to an ' +
+        'empty users table.');
+    }
+
     this.token = body.token;
     this.user = body.user;
     return this.token;

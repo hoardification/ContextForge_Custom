@@ -6,9 +6,13 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [loading, setLoading] = useState(Boolean(getToken()));
 
   // Restore a session from a stored token on first paint.
+  // A password-change token is refused by /auth/me by design, so a reload
+  // while locked drops back to the sign-in form rather than half-restoring a
+  // session the token cannot actually drive.
   useEffect(() => {
     if (!getToken()) return;
     api
@@ -22,12 +26,23 @@ export function AuthProvider({ children }) {
     const res = await api.login(username, password);
     setToken(res.token);
     setUser(res.user);
+    setMustChangePassword(Boolean(res.mustChangePassword));
+    return res;
+  }, []);
+
+  // Clears the lock and swaps the scoped token for a full one.
+  const changePassword = useCallback(async (currentPassword, newPassword) => {
+    const res = await api.changePassword(currentPassword, newPassword);
+    setToken(res.token);
+    setUser(res.user);
+    setMustChangePassword(false);
     return res.user;
   }, []);
 
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
+    setMustChangePassword(false);
   }, []);
 
   // UX-only gate. The API enforces the same rules authoritatively.
@@ -37,8 +52,8 @@ export function AuthProvider({ children }) {
   );
 
   const value = useMemo(
-    () => ({ user, loading, login, logout, can }),
-    [user, loading, login, logout, can],
+    () => ({ user, loading, login, logout, can, mustChangePassword, changePassword }),
+    [user, loading, login, logout, can, mustChangePassword, changePassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

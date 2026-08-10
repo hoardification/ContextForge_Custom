@@ -6,9 +6,16 @@ CREATE TABLE IF NOT EXISTS users (
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   role          TEXT NOT NULL CHECK (role IN ('read', 'readwrite', 'admin')),
+  -- Set when the account holds a password this repository publishes. Login
+  -- still succeeds, but issues a token scoped to changing the password.
+  must_change_password BOOLEAN NOT NULL DEFAULT false,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- A database created before the column existed is not touched by the
+-- CREATE TABLE above, which is a no-op once the table is there.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS addresses (
   id          SERIAL PRIMARY KEY,

@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import Addresses from './pages/Addresses.jsx';
+import ChangePassword from './pages/ChangePassword.jsx';
 import Login from './pages/Login.jsx';
 import Users from './pages/Users.jsx';
 import { useAuth } from './lib/auth.jsx';
 
 export default function App() {
-  const { user, loading, logout, can } = useAuth();
+  const { user, loading, logout, can, mustChangePassword } = useAuth();
   const [tab, setTab] = useState('addresses');
 
   if (loading) return <div className="app"><p className="muted">Loading…</p></div>;
   if (!user) return <Login />;
+  // Ahead of every other view: the token behind this session cannot reach any
+  // of them anyway, so rendering the app would only produce failing requests.
+  if (mustChangePassword) return <ChangePassword />;
 
   return (
     <>

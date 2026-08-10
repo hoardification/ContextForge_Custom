@@ -67,6 +67,15 @@ export default function App() {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error?.message || 'Login failed');
+      // Search is the only control here, so there is deliberately no password
+      // form. The token a locked account gets is scoped and could not run a
+      // single tool, so refuse the session rather than sign in to a dead end.
+      if (body.mustChangePassword) {
+        throw new Error(
+          `'${username}' is still using a password published in the project source. ` +
+          'Change it in the address book UI, then sign in here.',
+        );
+      }
       setToken(body.token);
       setUser(body.user);
       localStorage.setItem('agent_token', body.token);
@@ -250,7 +259,8 @@ export default function App() {
         </div>
         <p className="muted" style={{ fontSize: 12 }}>
           Try <code>viewer/viewer123</code> (read only), <code>editor/editor123</code>,
-          or <code>admin/admin123</code>.
+          or <code>admin/admin123</code> — but each is published in the project source, so
+          you will have to set a real password in the address book UI first.
         </p>
       </div>
     );

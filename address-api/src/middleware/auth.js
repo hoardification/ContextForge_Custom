@@ -38,9 +38,22 @@ function secret() {
   return value;
 }
 
-export function signToken(user) {
+/**
+ * Scope carried by the token handed to an account that must change its
+ * password. It is a deliberate downgrade: the role claim still says `admin`,
+ * but `requireAuth` refuses the token everywhere except the change-password
+ * route, so the role never gets a chance to matter.
+ */
+export const PASSWORD_CHANGE_SCOPE = 'password_change';
+
+export function signToken(user, { scope } = {}) {
   return jwt.sign(
-    { sub: String(user.id), username: user.username, role: user.role },
+    {
+      sub: String(user.id),
+      username: user.username,
+      role: user.role,
+      ...(scope ? { scope } : {}),
+    },
     secret(),
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' },
   );
@@ -50,8 +63,8 @@ export function verifyToken(token) {
   return jwt.verify(token, secret());
 }
 
-/** Attaches req.user, or throws 401. */
-export function requireAuth(req, _res, next) {
+/** Decode and attach req.user. Shared by both gates below; not exported. */
+function attachUser(req, next) {
   const header = req.headers.authorization || '';
   const [scheme, token] = header.split(' ');
 
@@ -60,12 +73,45 @@ export function requireAuth(req, _res, next) {
   }
   try {
     const claims = verifyToken(token);
-    req.user = { id: Number(claims.sub), username: claims.username, role: claims.role };
+    req.user = {
+      id: Number(claims.sub),
+      username: claims.username,
+      role: claims.role,
+      scope: claims.scope || null,
+    };
     return next();
   } catch (err) {
     const msg = err.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token';
     return next(new ApiError(401, 'UNAUTHENTICATED', msg));
   }
+}
+
+/**
+ * Attaches req.user, or throws 401.
+ *
+ * Also the single choke point that makes the password-change lock real. A
+ * scoped token is refused here, so a route added later is protected without
+ * its author having to know this feature exists - the safe direction to fail.
+ */
+export function requireAuth(req, _res, next) {
+  return attachUser(req, (err) => {
+    if (err) return next(err);
+    if (req.user.scope === PASSWORD_CHANGE_SCOPE) {
+      return next(new ApiError(403, 'PASSWORD_CHANGE_REQUIRED',
+        'This account is still using a password published in the project source. ' +
+        'Set a new one with POST /api/auth/change-password before using the API.'));
+    }
+    return next();
+  });
+}
+
+/**
+ * The one gate that accepts a password-change token, for the route whose whole
+ * job is to clear the lock. Full tokens are accepted too, so anyone may change
+ * their own password at any time.
+ */
+export function requireAuthForPasswordChange(req, _res, next) {
+  return attachUser(req, next);
 }
 
 /**

@@ -46,6 +46,9 @@ const jwt = (await import('jsonwebtoken')).default;
 const express = (await import('express')).default;
 const { z } = await import('zod');
 
+const { isPublicPassword, MIN_PASSWORD_LENGTH } =
+  await import('../address-api/src/publicPasswords.js');
+
 // bootstrap users (mirrors src/db/users.js ensureBootstrapUsers)
 // Read the same env vars, with the same fallbacks, as the code being mirrored.
 // Hardcoding the passwords here would let the real function stop honouring
@@ -55,8 +58,10 @@ for (const [u, p, r] of [
   ['editor', process.env.EDITOR_PASSWORD || 'editor123', 'readwrite'],
   ['viewer', process.env.VIEWER_PASSWORD || 'viewer123', 'read'],
 ]) {
-  await q('INSERT INTO users (username, password_hash, role) VALUES ($1,$2,$3)',
-    [u, await bcrypt.hash(p, 10), r]);
+  // must_change_password mirrors createUser: seeding with a password this
+  // repository publishes locks the account from its first login.
+  await q('INSERT INTO users (username, password_hash, role, must_change_password) VALUES ($1,$2,$3,$4)',
+    [u, await bcrypt.hash(p, 10), r, isPublicPassword(p)]);
 }
 const userCount = (await q('SELECT count(*)::int AS total FROM users')).rows[0].total;
 check('bootstrap users created', Number(userCount) === 3, `got ${userCount}`);
@@ -116,6 +121,42 @@ check('requireRole(admin) blocks readwrite',
   (await runMw(requireRole('admin'), { user: { role: 'readwrite' } }))?.status === 403);
 check('requireRole(readwrite) blocks read',
   (await runMw(requireRole('readwrite'), { user: { role: 'read' } }))?.status === 403);
+
+// --- forced password change -----------------------------------------------
+check('published passwords are recognised', isPublicPassword('admin123')
+  && isPublicPassword('editor123') && isPublicPassword('viewer123'));
+check('recognition ignores case and padding', isPublicPassword('  Admin123 '));
+check('a real password is not flagged', isPublicPassword('test-secret-viewer-pw') === false);
+check('empty and null are not flagged',
+  isPublicPassword('') === false && isPublicPassword(null) === false);
+
+check('accounts seeded with a published password are locked',
+  (await q(`SELECT must_change_password FROM users WHERE username = 'admin'`))
+    .rows[0].must_change_password === true);
+check('accounts seeded with a real password are not locked',
+  (await q(`SELECT must_change_password FROM users WHERE username = 'viewer'`))
+    .rows[0].must_change_password === false);
+
+const { PASSWORD_CHANGE_SCOPE, requireAuthForPasswordChange } = authMod;
+
+// The role claim still says admin. The scope is what must stop it - if this
+// ever passes, a locked admin account has the run of the whole API.
+const scopedAdmin = signToken(
+  { id: 1, username: 'admin', role: 'admin' },
+  { scope: PASSWORD_CHANGE_SCOPE },
+);
+const scopedErr = await runMw(requireAuth, { headers: { authorization: `Bearer ${scopedAdmin}` } });
+check('requireAuth refuses a password-change token', scopedErr?.status === 403);
+check('refusal names the reason', scopedErr?.code === 'PASSWORD_CHANGE_REQUIRED');
+check('an admin role does not rescue a scoped token', scopedErr !== undefined);
+
+const scopedOkReq = { headers: { authorization: `Bearer ${scopedAdmin}` } };
+check('the change-password gate accepts a scoped token',
+  (await runMw(requireAuthForPasswordChange, scopedOkReq)) === undefined);
+check('the change-password gate still accepts a full token',
+  (await runMw(requireAuthForPasswordChange, { headers: { authorization: `Bearer ${tok}` } })) === undefined);
+check('a full token carries no scope', verifyToken(tok).scope === undefined);
+check('replacement length floor is enforceable', MIN_PASSWORD_LENGTH >= 12);
 check('requireRole(readwrite) allows admin',
   (await runMw(requireRole('readwrite'), { user: { role: 'admin' } })) === undefined);
 check('requireRole(read) allows read',

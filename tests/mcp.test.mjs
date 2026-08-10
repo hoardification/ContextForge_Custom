@@ -35,13 +35,39 @@ const users = {
 const api = express();
 api.use(express.json());
 
+// Stands in for an account still holding a password published in the repo.
+// Its login succeeds but reports the lock, exactly as the real API does.
+users.locked = { id: 4, username: 'locked', role: 'read', password: 'viewer123', mustChange: true };
+
 api.post('/api/auth/login', (req, res) => {
   const u = users[req.body?.username];
   if (!u || u.password !== req.body?.password) {
     return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Invalid username or password' } });
   }
   const token = jwt.sign({ sub: String(u.id), username: u.username, role: u.role }, 'test-secret', { expiresIn: '1h' });
-  res.json({ token, user: { id: u.id, username: u.username, role: u.role } });
+  res.json({
+    token,
+    mustChangePassword: Boolean(u.mustChange),
+    user: { id: u.id, username: u.username, role: u.role },
+  });
+});
+
+api.post('/api/auth/change-password', (req, res) => {
+  const [, tok] = (req.headers.authorization || '').split(' ');
+  let claims;
+  try {
+    claims = jwt.verify(tok, 'test-secret');
+  } catch {
+    return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Invalid token' } });
+  }
+  const u = users[claims.username];
+  if (!u || u.password !== req.body?.currentPassword) {
+    return res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Current password is incorrect' } });
+  }
+  u.password = req.body.newPassword;
+  u.mustChange = false;
+  const token = jwt.sign({ sub: String(u.id), username: u.username, role: u.role }, 'test-secret', { expiresIn: '1h' });
+  res.json({ token, mustChangePassword: false, user: { id: u.id, username: u.username, role: u.role } });
 });
 
 function auth(min) {
@@ -134,8 +160,8 @@ async function login(username, password) {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
   check('MCP handshake succeeds and lists tools', tools.length > 0, `got ${tools.length}`);
-  check('14 tools registered', tools.length === 14, `got ${tools.length}: ${names.join(',')}`);
-  for (const expected of ['whoami', 'address_search', 'address_get', 'address_create',
+  check('15 tools registered', tools.length === 15, `got ${tools.length}: ${names.join(',')}`);
+  for (const expected of ['whoami', 'password_change', 'address_search', 'address_get', 'address_create',
     'address_update', 'address_delete', 'admin_reseed', 'user_list']) {
     check(`tool present: ${expected}`, names.includes(expected));
   }
@@ -224,6 +250,48 @@ async function login(username, password) {
   const { client, transport } = await connectMcp('not-a-real-jwt');
   const who = await callTool(client, 'whoami', {});
   check('forged token is rejected', who.isError && who.text.includes('UNAUTHENTICATED'), who.text);
+  await transport.close(); await client.close();
+}
+
+// ---- an account still on a published password -----------------------------
+// The stdio path: identity comes from env, so the client logs in itself. A
+// locked account must fail with the reason, not as a generic auth error - a
+// service account cannot answer a password prompt, and the fix is in .env.
+{
+  const { ApiClient } = await import('../mcp-server/src/apiClient.js');
+  const client = new ApiClient({ username: 'locked', password: 'viewer123' });
+  let err = null;
+  try {
+    await client.request('/api/addresses');
+  } catch (e) {
+    err = e;
+  }
+  check('a locked service account cannot reach the API', err !== null);
+  check('and the failure names the lock', err?.code === 'PASSWORD_CHANGE_REQUIRED', String(err?.message));
+  check('and the message points at the env fix',
+    /VIEWER_PASSWORD/.test(err?.message || '') && /MCP_PASSWORD/.test(err?.message || ''),
+    String(err?.message));
+}
+
+// ---- password_change over a forwarded token -------------------------------
+{
+  const token = await login('locked', 'viewer123');
+  const { client, transport } = await connectMcp(token);
+
+  const wrong = await callTool(client, 'password_change', {
+    currentPassword: 'test-secret-wrong', newPassword: 'test-secret-replacement',
+  });
+  check('password_change rejects a wrong current password',
+    wrong.isError && wrong.text.includes('UNAUTHENTICATED'), wrong.text);
+
+  const changed = await callTool(client, 'password_change', {
+    currentPassword: 'viewer123', newPassword: 'test-secret-replacement',
+  });
+  check('password_change succeeds with the right current password',
+    !changed.isError && changed.text.includes('locked'), changed.text);
+  check('password_change never echoes a token back',
+    !/eyJ[A-Za-z0-9_-]/.test(changed.text), changed.text);
+
   await transport.close(); await client.close();
 }
 
